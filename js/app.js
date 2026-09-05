@@ -24,8 +24,7 @@ const AppState = {
   /** Configurações carregadas do banco */
   config: {
     id:             1,
-    salarioMensal:  0,
-    diaPagamento:   5,
+    limiteSemanal:  0,
     tema:           'dark',
     moeda:          'BRL',
     lastProcessedMonth: ''

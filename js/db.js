@@ -13,7 +13,7 @@
 // CONSTANTES
 // ============================================================
 const DB_NAME    = 'smartcashDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** Referência global à instância do banco */
 let db = null;
@@ -60,6 +60,14 @@ function initDB() {
         const s = idb.createObjectStore('gastos', { keyPath: 'id', autoIncrement: true });
         s.createIndex('data',  'data',  { unique: false });
         s.createIndex('semana','semana',{ unique: false });
+      }
+
+      // ── ganhos ─────────────────────────────────────────────
+      // Lançamentos de renda: cada entrada de dinheiro recebido
+      // (salário, bico, freelance, etc.), com data e valor próprios.
+      if (!idb.objectStoreNames.contains('ganhos')) {
+        const s = idb.createObjectStore('ganhos', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('data', 'data', { unique: false });
       }
 
       // ── dividas ────────────────────────────────────────────
@@ -236,6 +244,26 @@ function dbGetGastosPorMes(mesReferencia) {
   });
 }
 
+/**
+ * Busca todos os ganhos (renda) de um determinado mês (filtra pela data).
+ * @param {string} mesReferencia  Formato: "YYYY-MM"
+ * @returns {Promise<Array>}
+ */
+function dbGetGanhosPorMes(mesReferencia) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction('ganhos', 'readonly');
+    const st  = tx.objectStore('ganhos');
+    const req = st.getAll();
+
+    req.onsuccess = () => {
+      const todos    = req.result || [];
+      const filtrado = todos.filter(g => g.data && g.data.startsWith(mesReferencia));
+      resolve(filtrado);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // ============================================================
 // UTILITÁRIOS DE MASSA
 // ============================================================
@@ -243,7 +271,7 @@ function dbGetGastosPorMes(mesReferencia) {
 /** Lista de todos os stores do banco */
 const ALL_STORES = [
   'configuracoes', 'contas', 'pagamentos',
-  'gastos', 'dividas', 'investimentos', 'reservas'
+  'gastos', 'ganhos', 'dividas', 'investimentos', 'reservas'
 ];
 
 /**

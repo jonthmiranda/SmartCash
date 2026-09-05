@@ -24,10 +24,8 @@ async function renderConfiguracoes() {
     const config = AppState.config;
 
     // Preenche os campos com os valores atuais
-    setValCfg('cfgSalario',      config.salarioMensal != null ? String(config.salarioMensal) : '');
-    setValCfg('cfgDiaPagamento', config.diaPagamento  != null ? String(config.diaPagamento)  : '5');
-    setValCfg('cfgMoeda',        config.moeda  || 'BRL');
-    setValCfg('cfgTema',         config.tema   || 'dark');
+    setValCfg('cfgMoeda', config.moeda || 'BRL');
+    setValCfg('cfgTema',  config.tema  || 'dark');
 
     // Configura eventos (uma única vez)
     setupFormConfig();
@@ -68,19 +66,9 @@ function setupFormConfig() {
  * Salva as configurações financeiras no banco.
  */
 async function salvarConfiguracoes() {
-  const salario      = parseFloat(document.getElementById('cfgSalario')?.value) || 0;
-  const diaPagamento = parseInt(document.getElementById('cfgDiaPagamento')?.value, 10) || 5;
-  const moeda        = document.getElementById('cfgMoeda')?.value || 'BRL';
+  const moeda = document.getElementById('cfgMoeda')?.value || 'BRL';
 
-  // Validação básica
-  if (diaPagamento < 1 || diaPagamento > 31) {
-    showToast('Dia de pagamento deve ser entre 1 e 31.', 'error');
-    return;
-  }
-
-  AppState.config.salarioMensal = salario;
-  AppState.config.diaPagamento  = diaPagamento;
-  AppState.config.moeda         = moeda;
+  AppState.config.moeda = moeda;
 
   try {
     await saveConfig();
@@ -128,8 +116,7 @@ function confirmarLimparDados() {
         // Reinicia configurações preservando tema e moeda
         AppState.config = {
           id: 1,
-          salarioMensal: 0,
-          diaPagamento: 5,
+          limiteSemanal: 0,
           tema: temaAtual,
           moeda: moedaAtual,
           lastProcessedMonth: AppState.currentMonth
@@ -226,6 +213,13 @@ async function exportarCSV() {
       csv += `${g.id},${g.data},"${g.descricao}","${g.categoria}",${g.semana},${g.valor}\n`;
     });
 
+    // Ganhos
+    csv += '\nGANHOS\n';
+    csv += 'ID,Data,Descrição,Categoria,Valor\n';
+    (dados.ganhos || []).forEach(g => {
+      csv += `${g.id},${g.data},"${g.descricao}","${g.categoria}",${g.valor}\n`;
+    });
+
     // Dívidas
     csv += '\nDÍVIDAS\n';
     csv += 'ID,Nome,Saldo Atual,Juros Mensal (%),Parcela Mínima\n';
@@ -295,7 +289,7 @@ function importarBackup(event) {
       const dados = conteudo.dados || conteudo;
 
       // Validação mínima: precisa ter pelo menos uma das stores
-      const temDados = ['contas', 'gastos', 'dividas', 'reservas', 'investimentos', 'configuracoes']
+      const temDados = ['contas', 'gastos', 'ganhos', 'dividas', 'reservas', 'investimentos', 'configuracoes']
         .some(store => Array.isArray(dados[store]));
 
       if (!temDados) {

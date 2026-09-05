@@ -63,7 +63,7 @@
         <span>☀️</span>
         <span>Modo Claro</span>
       </button>
-      <div class="sidebar-version">v1.0.0</div>
+      <div class="sidebar-version">v1.1.0</div>
     </div>
   </nav>
 
@@ -103,6 +103,7 @@
               <span class="card-value" id="dashSalario">R$ 0,00</span>
             </div>
           </div>
+
           <div class="card card-expenses">
             <div class="card-icon">📋</div>
             <div class="card-info">
@@ -131,6 +132,34 @@
               <span class="card-value" id="dashSaldo">R$ 0,00</span>
             </div>
           </div>
+        </div>
+
+        <!-- Ganhos do Mês -->
+        <div class="section-card">
+          <div class="section-header">
+            <h3>💰 Ganhos do Mês</h3>
+            <button class="btn btn-primary" id="btnNovoGanho">+ Lançar Ganho</button>
+          </div>
+          <p style="color:var(--text-secondary);font-size:13px;margin:-4px 0 12px">
+            Registre aqui cada vez que receber dinheiro (salário, bico, freelance etc.). A Receita do Mês é a soma de todos os lançamentos do mês atual.
+          </p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrição</th>
+                  <th>Categoria</th>
+                  <th>Valor</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="ganhosTableBody">
+                <tr><td colspan="5" class="table-empty">Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-footer" id="ganhosResumo"></div>
         </div>
 
         <!-- Gráficos -->
@@ -339,7 +368,17 @@
 
         <!-- Resumo por semana -->
         <div class="section-card">
-          <h3>📊 Controle Semanal</h3>
+          <div class="section-header">
+            <h3>📊 Controle Semanal</h3>
+          </div>
+          <div class="form-group" style="max-width:320px">
+            <label>Quanto você quer gastar por semana? (R$)</label>
+            <div style="display:flex;gap:8px">
+              <input type="number" id="planLimiteSemanal" placeholder="500.00" min="0" step="0.01">
+              <button class="btn btn-primary" id="btnSalvarLimiteSemanal">💾 Salvar</button>
+            </div>
+          </div>
+          <p id="planSaldoInfo" style="color:var(--text-secondary);font-size:13px;margin:4px 0 12px"></p>
           <div class="table-container">
             <table class="data-table">
               <thead>
@@ -352,7 +391,7 @@
                 </tr>
               </thead>
               <tbody id="semanasTableBody">
-                <tr><td colspan="5" class="table-empty">Configure seu salário nas Configurações</td></tr>
+                <tr><td colspan="5" class="table-empty">Defina seu limite semanal acima</td></tr>
               </tbody>
             </table>
           </div>
@@ -403,14 +442,9 @@
           <!-- Dados Financeiros -->
           <div class="section-card">
             <h3>💵 Dados Financeiros</h3>
-            <div class="form-group">
-              <label>Salário Mensal (R$)</label>
-              <input type="number" id="cfgSalario" placeholder="2500.00" min="0" step="0.01">
-            </div>
-            <div class="form-group">
-              <label>Dia do Pagamento</label>
-              <input type="number" id="cfgDiaPagamento" min="1" max="31" placeholder="5">
-            </div>
+            <p style="color:var(--text-secondary);font-size:13px;margin-top:-4px">
+              Sua renda mensal não é mais um valor fixo: registre cada ganho (salário, bicos etc.) na tela Dashboard, em "Ganhos do Mês".
+            </p>
             <div class="form-group">
               <label>Moeda</label>
               <select id="cfgMoeda">
@@ -700,13 +734,25 @@
           <label>Categoria</label>
           <select id="gastoCategoria">
             <option>Mercado</option>
+            <option>Alimentação</option>
+            <option>Restaurante / Delivery</option>
             <option>Combustível</option>
+            <option>Transporte / Uber</option>
+            <option>Moradia / Aluguel</option>
+            <option>Contas de Casa</option>
             <option>Lazer</option>
             <option>Supérfluos</option>
-            <option>Alimentação</option>
             <option>Saúde</option>
-            <option>Transporte</option>
+            <option>Farmácia</option>
             <option>Vestuário</option>
+            <option>Educação</option>
+            <option>Assinaturas</option>
+            <option>Cuidados Pessoais</option>
+            <option>Pets</option>
+            <option>Presentes</option>
+            <option>Viagem</option>
+            <option>Impostos / Taxas</option>
+            <option>Doações</option>
             <option>Outros</option>
           </select>
         </div>
@@ -729,6 +775,50 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-modal="modalGasto">Cancelar</button>
         <button class="btn btn-primary" id="btnSalvarGasto">Salvar Gasto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Ganho -->
+  <div class="modal" id="modalGanho" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalGanhoTitulo">Lançar Ganho</h3>
+        <button class="modal-close" data-modal="modalGanho" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ganhoId">
+        <div class="form-group">
+          <label>Data *</label>
+          <input type="date" id="ganhoData">
+          <span class="field-error" id="errGanhoData"></span>
+        </div>
+        <div class="form-group">
+          <label>Descrição *</label>
+          <input type="text" id="ganhoDescricao" placeholder="Ex: Salário, Bico de fim de semana...">
+          <span class="field-error" id="errGanhoDescricao"></span>
+        </div>
+        <div class="form-group">
+          <label>Categoria</label>
+          <select id="ganhoCategoria">
+            <option>Salário</option>
+            <option>Freelance / Bico</option>
+            <option>Bônus</option>
+            <option>Reembolso</option>
+            <option>Presente</option>
+            <option>Rendimento</option>
+            <option>Outros</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Valor (R$) *</label>
+          <input type="number" id="ganhoValor" placeholder="2500.00" min="0" step="0.01">
+          <span class="field-error" id="errGanhoValor"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-modal="modalGanho">Cancelar</button>
+        <button class="btn btn-primary" id="btnSalvarGanho">Salvar Ganho</button>
       </div>
     </div>
   </div>

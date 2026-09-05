@@ -9,7 +9,7 @@
 
 'use strict';
 
-const CACHE_NAME    = 'smartcash-v1.0.0';
+const CACHE_NAME    = 'smartcash-v1.1.0';
 const OFFLINE_URL   = './index.html';
 
 // Assets locais para pre-cachear no install

@@ -2,8 +2,8 @@
  * SmartCash — planejamento.js
  * Tela 5: Planejamento Semanal
  * -----------------------------------------------
- * Divide o saldo disponível em semanas do mês:
- *   Limite Semanal = Saldo Disponível / Nº de Semanas
+ * O limite semanal é definido manualmente pelo usuário
+ * (não é mais calculado automaticamente a partir da renda).
  *
  * Controla lançamentos de gastos diários por semana
  * e exibe alertas quando o limite é ultrapassado.
@@ -24,26 +24,26 @@ async function renderPlanejamento() {
     const config = AppState.config;
 
     // Carrega dados em paralelo
-    const [pagamentos, reservas, gastos] = await Promise.all([
+    const [pagamentos, reservas, gastos, ganhos] = await Promise.all([
       dbGetPagamentosPorMes(mes),
       dbGetAll('reservas'),
-      dbGetGastosPorMes(mes)
+      dbGetGastosPorMes(mes),
+      dbGetGanhosPorMes(mes)
     ]);
 
-    // ── Cálculo do saldo disponível ──────────────────────────
+    // ── Cálculo informativo do saldo do mês ──────────────────
+    // (o limite semanal em si é definido manualmente pelo usuário,
+    //  não é mais calculado a partir da renda)
 
-    const salario      = config.salarioMensal || 0;
-    const totalPago    = pagamentos.reduce((s, p) => s + (p.valorPago || 0), 0);
-    const reservasMes  = reservas.filter(r => r.mesReferencia === mes);
-    const totalGuardado = reservasMes.reduce((s, r) => s + (r.valorGuardado || 0), 0);
-    const totalGastos  = gastos.reduce((s, g) => s + (g.valor || 0), 0);
+    const totalGanhos   = ganhos.reduce((s, g) => s + (g.valor || 0), 0);
+    const totalPago      = pagamentos.reduce((s, p) => s + (p.valorPago || 0), 0);
+    const reservasMes    = reservas.filter(r => r.mesReferencia === mes);
+    const totalGuardado  = reservasMes.reduce((s, r) => s + (r.valorGuardado || 0), 0);
+    const saldoParaGastos = totalGanhos - totalPago - totalGuardado;
 
-    // Saldo para gastos do dia a dia (exclui contas e reservas)
-    const saldoParaGastos = salario - totalPago - totalGuardado;
-
-    // Divide em 4 semanas
+    // Limite semanal manual, definido pelo usuário nas Configurações desta tela
+    const limiteSemanal = config.limiteSemanal || 0;
     const NUM_SEMANAS   = 4;
-    const limiteSemanal = saldoParaGastos > 0 ? saldoParaGastos / NUM_SEMANAS : 0;
 
     // ── Agrupa gastos por semana ─────────────────────────────
 
@@ -55,6 +55,9 @@ async function renderPlanejamento() {
 
     // ── Render ───────────────────────────────────────────────
 
+    setValPl('planLimiteSemanal', limiteSemanal ? String(limiteSemanal) : '');
+    setElPl('planSaldoInfo', `Saldo do mês (ganhos − contas pagas − guardado): ${formatCurrency(saldoParaGastos)}`);
+
     renderSemanasTable(limiteSemanal, gastosPorSemana, NUM_SEMANAS, saldoParaGastos);
     renderGastosTable(gastos);
     atualizarResumoGastos(gastos);
@@ -62,10 +65,49 @@ async function renderPlanejamento() {
     // Setup de eventos
     setupFormGasto();
     setupFiltroSemana();
+    setupLimiteSemanal();
 
   } catch (err) {
     console.error('[Planejamento] Erro:', err);
     showToast('Erro ao carregar planejamento.', 'error');
+  }
+}
+
+// ============================================================
+// LIMITE SEMANAL MANUAL
+// ============================================================
+
+/**
+ * Configura o botão que salva o limite semanal definido pelo usuário.
+ */
+function setupLimiteSemanal() {
+  const btn = document.getElementById('btnSalvarLimiteSemanal');
+  if (btn && !btn._scListener) {
+    btn.addEventListener('click', salvarLimiteSemanal);
+    btn._scListener = true;
+  }
+}
+
+/**
+ * Salva o limite semanal manual informado pelo usuário.
+ */
+async function salvarLimiteSemanal() {
+  const valor = parseFloat(document.getElementById('planLimiteSemanal')?.value) || 0;
+
+  if (valor <= 0) {
+    showToast('Informe um limite semanal maior que zero.', 'error');
+    return;
+  }
+
+  AppState.config.limiteSemanal = valor;
+
+  try {
+    await saveConfig();
+    showToast('Limite semanal salvo! ✅');
+    await renderPlanejamento();
+  } catch (err) {
+    console.error('[Planejamento] Erro ao salvar limite semanal:', err);
+    showToast('Erro ao salvar limite semanal.', 'error');
   }
 }
 
@@ -80,10 +122,10 @@ function renderSemanasTable(limiteSemanal, gastosPorSemana, numSemanas, saldoTot
   const tbody = document.getElementById('semanasTableBody');
   if (!tbody) return;
 
-  if (limiteSemanal <= 0 && saldoTotal <= 0) {
+  if (limiteSemanal <= 0) {
     tbody.innerHTML = `
       <tr><td colspan="5" class="table-empty">
-        Configure seu salário e registre suas contas para ver o planejamento semanal.
+        Defina quanto você quer gastar por semana no campo acima para ver o planejamento semanal.
       </td></tr>
     `;
     return;
