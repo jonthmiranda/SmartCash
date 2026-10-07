@@ -5,6 +5,7 @@
  * Gerencia contas fixas e parceladas:
  *  - CRUD completo (criar, editar, excluir, duplicar)
  *  - Registro de pagamentos com desconto
+ *  - Dia de vencimento mensal com indicação de status
  *  - Filtros e busca
  *  - Encerramento automático de parceladas
  */
@@ -80,7 +81,7 @@ function renderTabelaContas(contas, pagamentos) {
 
   if (contas.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="8" class="table-empty">Nenhuma conta encontrada. Clique em "+ Nova Conta" para adicionar.</td></tr>';
+      '<tr><td colspan="9" class="table-empty">Nenhuma conta encontrada. Clique em "+ Nova Conta" para adicionar.</td></tr>';
     return;
   }
 
@@ -114,6 +115,24 @@ function renderTabelaContas(contas, pagamentos) {
       }
     }
 
+    // Vencimento (dia do mês + situação)
+    const venc = vencSituacao(conta, getCurrentMonth(), valorPago > 0);
+    let vencHtml = '<span class="cell-sub">—</span>';
+    if (venc.data && conta.ativa) {
+      const rotulos = {
+        paga:     '<span class="badge badge-green">Pago</span>',
+        atrasada: `<span class="badge badge-red">Atrasada ${Math.abs(venc.dias)}d</span>`,
+        hoje:     '<span class="badge badge-red">Vence hoje</span>',
+        amanha:   '<span class="badge badge-yellow">Vence amanhã</span>',
+        proxima:  `<span class="badge badge-yellow">Em ${venc.dias} dias</span>`,
+        futura:   `<span class="badge badge-gray">Em ${venc.dias} dias</span>`
+      };
+      vencHtml = `<div class="cell-main">${formatDate(venc.data)}</div>
+                  <div style="margin-top:3px">${rotulos[venc.status] || ''}</div>`;
+    } else if (venc.data) {
+      vencHtml = `<div class="cell-main">Dia ${conta.diaVencimento}</div>`;
+    }
+
     // Botão de pagar só aparece se ativa e não paga ainda
     const btnPagar = conta.ativa && !pagamento
       ? `<button class="btn-icon btn-success" title="Registrar pagamento"
@@ -131,6 +150,7 @@ function renderTabelaContas(contas, pagamentos) {
       <td><span class="badge badge-blue">${escHtml(conta.categoria)}</span></td>
       <td>${formatCurrency(conta.valorParcela)}</td>
       <td>${parcelaInfo}</td>
+      <td>${vencHtml}</td>
       <td>${valorPago > 0 ? formatCurrency(valorPago) : '—'}</td>
       <td>${diferencaHtml}</td>
       <td>${statusBadge}</td>
@@ -213,7 +233,8 @@ function abrirFormConta() {
   setValEl('contaValorParcela',     '');
   setValEl('contaParcelasTotais',   '');
   setValEl('contaParcelasRestantes','');
-  setValEl('contaDataCriacao',      new Date().toISOString().split('T')[0]);
+  setValEl('contaDiaVencimento',    '');
+  setValEl('contaDataCriacao',      hojeLocalISO());
 
   const checkFixa = document.getElementById('contaFixa');
   if (checkFixa) checkFixa.checked = false;
@@ -238,6 +259,7 @@ async function editarConta(id) {
     setValEl('contaValorParcela',     String(conta.valorParcela));
     setValEl('contaParcelasTotais',   conta.parcelasTotais   != null ? String(conta.parcelasTotais) : '');
     setValEl('contaParcelasRestantes',conta.parcelasRestantes != null ? String(conta.parcelasRestantes) : '');
+    setValEl('contaDiaVencimento',    conta.diaVencimento != null ? String(conta.diaVencimento) : '');
     setValEl('contaDataCriacao',      conta.dataCriacao || '');
 
     const checkFixa = document.getElementById('contaFixa');
@@ -262,7 +284,8 @@ async function salvarConta() {
   const fixa             = document.getElementById('contaFixa')?.checked || false;
   const parcelasTotais   = parseInt(document.getElementById('contaParcelasTotais')?.value, 10) || null;
   const parcelasRestantes= parseInt(document.getElementById('contaParcelasRestantes')?.value, 10) || null;
-  const dataCriacao      = document.getElementById('contaDataCriacao')?.value || new Date().toISOString().split('T')[0];
+  const diaVencimento    = parseInt(document.getElementById('contaDiaVencimento')?.value, 10);
+  const dataCriacao      = document.getElementById('contaDataCriacao')?.value || hojeLocalISO();
 
   // Validação
   let ok = true;
@@ -277,6 +300,11 @@ async function salvarConta() {
     ok = false;
   } else setElContas('errContaValor', '');
 
+  if (!diaVencimento || diaVencimento < 1 || diaVencimento > 31) {
+    setElContas('errContaVencimento', 'Informe um dia entre 1 e 31.');
+    ok = false;
+  } else setElContas('errContaVencimento', '');
+
   if (!ok) return;
 
   // Monta objeto
@@ -288,6 +316,7 @@ async function salvarConta() {
     parcelasTotais:    fixa ? null : parcelasTotais,
     parcelasRestantes: fixa ? null : parcelasRestantes,
     ativa:             true,
+    diaVencimento,
     dataCriacao
   };
   if (id) conta.id = parseInt(id, 10);
@@ -336,7 +365,7 @@ async function duplicarConta(id) {
     const copia = { ...conta };
     delete copia.id;
     copia.nome        = `${conta.nome} (Cópia)`;
-    copia.dataCriacao = new Date().toISOString().split('T')[0];
+    copia.dataCriacao = hojeLocalISO();
 
     await dbAdd('contas', copia);
     await renderContas();
@@ -360,7 +389,7 @@ async function abrirModalPagamento(contaId) {
     if (!conta) return;
 
     const mes  = getCurrentMonth();
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = hojeLocalISO();
 
     setValEl('pagContaId',        String(contaId));
     setValEl('pagValorPago',      String(conta.valorParcela));

@@ -9,7 +9,8 @@
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="assets/icons/icon.svg">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
 
   <!-- CSS -->
   <link rel="stylesheet" href="css/style.css">
@@ -211,6 +212,7 @@
                 <th>Categoria</th>
                 <th>Parcela</th>
                 <th>Parcelas Rest.</th>
+                <th>Vencimento</th>
                 <th>Pago</th>
                 <th>Diferença</th>
                 <th>Status</th>
@@ -218,7 +220,7 @@
               </tr>
             </thead>
             <tbody id="contasTableBody">
-              <tr><td colspan="8" class="table-empty">Carregando...</td></tr>
+              <tr><td colspan="9" class="table-empty">Carregando...</td></tr>
             </tbody>
           </table>
         </div>
@@ -456,6 +458,30 @@
             <button class="btn btn-primary" id="btnSalvarConfig" style="margin-top:8px">💾 Salvar Configurações</button>
           </div>
 
+          <!-- Instalar aplicativo (PWA) -->
+          <div class="section-card">
+            <h3>📲 Aplicativo</h3>
+            <p class="field-hint">
+              Instale o SmartCash no seu dispositivo para abri-lo como um app, em tela cheia e com acesso offline.
+            </p>
+            <button class="btn btn-primary" id="btnInstalarPWA" style="margin-top:8px">📲 Instalar aplicativo</button>
+            <p class="field-hint" id="pwaInstallStatus" style="margin-top:10px"></p>
+          </div>
+
+          <!-- Lembretes de vencimento -->
+          <div class="section-card">
+            <h3>🔔 Lembretes de Vencimento</h3>
+            <p class="field-hint">
+              Receba uma notificação um dia antes do vencimento de cada conta ainda não paga.
+            </p>
+            <div class="form-check" style="margin-top:8px">
+              <input type="checkbox" id="cfgNotificacoes">
+              <label for="cfgNotificacoes">Ativar lembretes de vencimento</label>
+            </div>
+            <p class="field-hint" id="notifStatus" style="margin-top:6px"></p>
+            <button class="btn btn-secondary" id="btnTestarNotificacao" style="margin-top:8px">🔔 Enviar notificação de teste</button>
+          </div>
+
           <!-- Aparência -->
           <div class="section-card">
             <h3>🎨 Aparência</h3>
@@ -572,6 +598,12 @@
         <div id="grupoParcelasRest" class="form-group">
           <label>Parcelas Restantes</label>
           <input type="number" id="contaParcelasRestantes" placeholder="18" min="0">
+        </div>
+        <div class="form-group">
+          <label>Dia do Vencimento *</label>
+          <input type="number" id="contaDiaVencimento" placeholder="Ex: 10" min="1" max="31" step="1" inputmode="numeric">
+          <small class="field-hint">Vence todo mês nesse dia. Em meses mais curtos, vence no último dia do mês.</small>
+          <span class="field-error" id="errContaVencimento"></span>
         </div>
         <div class="form-group">
           <label>Data de Início</label>
@@ -844,6 +876,7 @@
 
   <!-- JavaScript Modules -->
   <script src="js/db.js"></script>
+  <script src="js/vencimentos.js"></script>
   <script src="js/app.js"></script>
   <script src="js/dashboard.js"></script>
   <script src="js/contas.js"></script>

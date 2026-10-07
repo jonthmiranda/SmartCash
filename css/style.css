@@ -1047,3 +1047,15 @@ body {
   .projections-grid { grid-template-columns: 1fr 1fr; }
   .sim-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* ============================================================
+   DICAS DE CAMPO / PWA / LEMBRETES
+   ============================================================ */
+.field-hint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+small.field-hint { margin-top: 4px; }
+.btn[disabled] { opacity: .55; cursor: not-allowed; }

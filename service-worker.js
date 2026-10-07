@@ -5,11 +5,18 @@
  * Estratégia: Cache First para assets estáticos.
  * Recursos externos (CDN) são cacheados na 1ª visita.
  * IndexedDB funciona offline nativamente.
+ *
+ * Lembretes de vencimento: o SW reutiliza db.js e vencimentos.js
+ * (importScripts) para consultar o IndexedDB e notificar contas
+ * que vencem amanhã — via Periodic Background Sync, mensagem da
+ * página ou clique em notificação.
  */
 
 'use strict';
 
-const CACHE_NAME    = 'smartcash-v1.1.0';
+importScripts('./js/db.js', './js/vencimentos.js');
+
+const CACHE_NAME    = 'smartcash-v1.2.0';
 const OFFLINE_URL   = './index.html';
 
 // Assets locais para pre-cachear no install
@@ -19,6 +26,7 @@ const STATIC_ASSETS = [
   './manifest.json',
   './css/style.css',
   './js/db.js',
+  './js/vencimentos.js',
   './js/app.js',
   './js/dashboard.js',
   './js/contas.js',
@@ -27,7 +35,10 @@ const STATIC_ASSETS = [
   './js/planejamento.js',
   './js/configuracoes.js',
   './assets/icons/icon-192.svg',
-  './assets/icons/icon-512.svg'
+  './assets/icons/icon-512.svg',
+  './assets/icons/icon-192.png',
+  './assets/icons/icon-512.png',
+  './assets/icons/apple-touch-icon.png'
 ];
 
 // Assets externos (CDN) — cacheados na 1ª visita
@@ -148,7 +159,47 @@ self.addEventListener('fetch', event => {
 // MESSAGE — Comunicação com a página
 // ============================================================
 self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  if (!event.data) return;
+
+  if (event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+
+  if (event.data.type === 'CHECK_VENCIMENTOS') {
+    event.waitUntil(vencVerificarEEnviar(self.registration).catch(() => {}));
+  }
+});
+
+// ============================================================
+// PERIODIC BACKGROUND SYNC — Lembretes com o app fechado
+// (Chrome/Edge com o app instalado; o navegador decide a frequência)
+// ============================================================
+self.addEventListener('periodicsync', event => {
+  if (event.tag === VENC_PERIODIC_TAG) {
+    event.waitUntil(
+      vencVerificarEEnviar(self.registration).catch(err =>
+        console.warn('[SW] Falha ao verificar vencimentos:', err)
+      )
+    );
+  }
+});
+
+// ============================================================
+// NOTIFICATION CLICK — Abre/foca o app na tela indicada
+// ============================================================
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const destino = (event.notification.data && event.notification.data.url) || './index.html';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(janelas => {
+      for (const janela of janelas) {
+        if ('focus' in janela) {
+          janela.navigate(destino).catch(() => {});
+          return janela.focus();
+        }
+      }
+      return self.clients.openWindow(destino);
+    })
+  );
 });

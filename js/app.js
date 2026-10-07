@@ -65,11 +65,21 @@ async function initApp() {
     // 7. Verifica se há virada de mês a processar
     await checkMonthRollover();
 
-    // 8. Carrega a tela inicial (dashboard)
-    await navigateTo('dashboard');
+    // 8. Carrega a tela inicial (dashboard, ou a tela pedida via #hash,
+    //    ex.: ao tocar numa notificação de vencimento)
+    const telasValidas = ['dashboard', 'contas', 'dividas', 'patrimonio', 'planejamento', 'configuracoes'];
+    const hashTela = (location.hash || '').replace('#', '');
+    await navigateTo(telasValidas.includes(hashTela) ? hashTela : 'dashboard');
 
-    // 9. Registra o Service Worker (PWA)
-    registerServiceWorker();
+    // Atende mudanças de #hash (ex.: toque numa notificação com o app aberto)
+    window.addEventListener('hashchange', () => {
+      const t = (location.hash || '').replace('#', '');
+      if (telasValidas.includes(t)) navigateTo(t);
+    });
+
+    // 9. Registra o Service Worker (PWA) e liga os lembretes de vencimento
+    await registerServiceWorker();
+    iniciarLembretesVencimento();
 
     console.log('[SmartCash] Aplicação inicializada com sucesso.');
 
@@ -521,11 +531,135 @@ function showConfirm(message, callback) {
 /**
  * Registra o Service Worker para suporte offline.
  */
-function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./service-worker.js')
-      .then(reg  => console.log('[SW] Registrado:', reg.scope))
-      .catch(err => console.warn('[SW] Falha no registro:', err));
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('./service-worker.js');
+    console.log('[SW] Registrado:', reg.scope);
+  } catch (err) {
+    console.warn('[SW] Falha no registro:', err);
+  }
+}
+
+// ============================================================
+// PWA — INSTALAÇÃO
+// ============================================================
+
+/** Evento `beforeinstallprompt` guardado para disparar pelo botão. */
+let _installPrompt = null;
+
+// Precisa ser registrado cedo (antes do DOMContentLoaded)
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();          // impede o mini-banner automático
+  _installPrompt = e;
+  atualizarUIInstalacao();
+});
+
+window.addEventListener('appinstalled', () => {
+  _installPrompt = null;
+  atualizarUIInstalacao();
+  showToast('SmartCash instalado com sucesso! 🎉');
+});
+
+/** True se o app já está rodando instalado (tela cheia / standalone). */
+function appJaInstalado() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         window.matchMedia('(display-mode: window-controls-overlay)').matches ||
+         window.navigator.standalone === true; // iOS
+}
+
+/** True em iPhone/iPad (que não suporta o botão automático). */
+function ehIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/** Atualiza o botão e o texto de instalação na tela de Configurações. */
+function atualizarUIInstalacao() {
+  const btn    = document.getElementById('btnInstalarPWA');
+  const status = document.getElementById('pwaInstallStatus');
+  if (!btn || !status) return;
+
+  if (appJaInstalado()) {
+    btn.disabled = true;
+    btn.textContent = '✅ Aplicativo instalado';
+    status.textContent = 'Você já está usando o SmartCash como aplicativo.';
+  } else if (_installPrompt) {
+    btn.disabled = false;
+    btn.textContent = '📲 Instalar aplicativo';
+    status.textContent = 'Toque no botão para instalar com um clique.';
+  } else if (ehIOS()) {
+    btn.disabled = false;
+    btn.textContent = '📲 Como instalar no iPhone';
+    status.textContent = 'No iPhone/iPad a instalação é feita pelo Safari.';
+  } else {
+    btn.disabled = false;
+    btn.textContent = '📲 Instalar aplicativo';
+    status.textContent = 'Se o navegador ainda não liberou a instalação, use o menu (⋮) → "Instalar app" / "Adicionar à tela inicial".';
+  }
+}
+
+/** Ação do botão "Instalar aplicativo". */
+async function instalarPWA() {
+  if (appJaInstalado()) return;
+
+  if (_installPrompt) {
+    _installPrompt.prompt();
+    const { outcome } = await _installPrompt.userChoice;
+    _installPrompt = null; // o evento só pode ser usado uma vez
+    if (outcome !== 'accepted') showToast('Instalação cancelada.', 'info');
+    atualizarUIInstalacao();
+    return;
+  }
+
+  if (ehIOS()) {
+    showToast('No Safari: toque em Compartilhar (⬆️) → "Adicionar à Tela de Início".', 'info', 7000);
+  } else {
+    showToast('Abra o menu do navegador (⋮) e escolha "Instalar app" ou "Adicionar à tela inicial".', 'info', 7000);
+  }
+}
+
+// ============================================================
+// LEMBRETES DE VENCIMENTO
+// ============================================================
+
+/**
+ * Verifica agora as contas que vencem amanhã e dispara as notificações.
+ * @returns {Promise<number>} Quantidade enviada
+ */
+async function verificarVencimentosAgora(opcoes = {}) {
+  if (!('serviceWorker' in navigator) || !('Notification' in window)) return 0;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return await vencVerificarEEnviar(reg, opcoes);
+  } catch (err) {
+    console.warn('[Vencimentos] Falha na verificação:', err);
+    return 0;
+  }
+}
+
+/**
+ * Liga as verificações automáticas enquanto o app está aberto:
+ *  - ao abrir, ao voltar para o app e a cada 30 minutos.
+ * Com o app fechado, o Service Worker cuida disso via Periodic Background Sync
+ * (ver registrarSyncPeriodico em configuracoes.js).
+ */
+let _lembretesLigados = false;
+
+function iniciarLembretesVencimento() {
+  if (_lembretesLigados) return;
+  _lembretesLigados = true;
+
+  // Os gatilhos ficam sempre ligados; vencVerificarEEnviar() só envia
+  // se o usuário tiver ativado os lembretes e dado permissão.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') verificarVencimentosAgora();
+  });
+  setInterval(verificarVencimentosAgora, 30 * 60 * 1000);
+
+  if (AppState.config.notificacoesVencimento) {
+    verificarVencimentosAgora();
+    registrarSyncPeriodico();
   }
 }
 

@@ -5,6 +5,7 @@
  * Gerencia:
  *  - Dados financeiros (salário, dia pagamento, moeda)
  *  - Preferências de aparência (tema)
+ *  - Instalação do PWA e lembretes de vencimento
  *  - Exportação de dados (JSON e CSV)
  *  - Backup completo (exportar e importar)
  *  - Limpeza de todos os dados
@@ -30,6 +31,11 @@ async function renderConfiguracoes() {
     // Configura eventos (uma única vez)
     setupFormConfig();
     setupExportarImportar();
+    setupPWAeNotificacoes();
+
+    // Estado atual de instalação e lembretes
+    atualizarUIInstalacao();
+    atualizarUINotificacoes();
 
   } catch (err) {
     console.error('[Config] Erro ao renderizar:', err);
@@ -110,6 +116,7 @@ function confirmarLimparDados() {
       try {
         const temaAtual = AppState.config.tema;
         const moedaAtual = AppState.config.moeda;
+        const notifAtual = !!AppState.config.notificacoesVencimento;
 
         await dbClearAll();
 
@@ -119,6 +126,7 @@ function confirmarLimparDados() {
           limiteSemanal: 0,
           tema: temaAtual,
           moeda: moedaAtual,
+          notificacoesVencimento: notifAtual,
           lastProcessedMonth: AppState.currentMonth
         };
 
@@ -131,6 +139,145 @@ function confirmarLimparDados() {
       }
     }
   );
+}
+
+// ============================================================
+// INSTALAÇÃO DO PWA E LEMBRETES DE VENCIMENTO
+// ============================================================
+
+function setupPWAeNotificacoes() {
+  const btnInstalar = document.getElementById('btnInstalarPWA');
+  const chkNotif    = document.getElementById('cfgNotificacoes');
+  const btnTeste    = document.getElementById('btnTestarNotificacao');
+
+  if (btnInstalar && !btnInstalar._scListener) {
+    btnInstalar.addEventListener('click', instalarPWA);
+    btnInstalar._scListener = true;
+  }
+  if (chkNotif && !chkNotif._scListener) {
+    chkNotif.addEventListener('change', alternarLembretes);
+    chkNotif._scListener = true;
+  }
+  if (btnTeste && !btnTeste._scListener) {
+    btnTeste.addEventListener('click', enviarNotificacaoTeste);
+    btnTeste._scListener = true;
+  }
+}
+
+/** Reflete permissão + preferência na tela. */
+function atualizarUINotificacoes() {
+  const chk    = document.getElementById('cfgNotificacoes');
+  const status = document.getElementById('notifStatus');
+  const btn    = document.getElementById('btnTestarNotificacao');
+  if (!chk || !status) return;
+
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    chk.checked = false;
+    chk.disabled = true;
+    if (btn) btn.disabled = true;
+    status.textContent = ehIOS() && !appJaInstalado()
+      ? 'No iPhone/iPad, instale o app na Tela de Início para poder receber notificações.'
+      : 'Este navegador não suporta notificações.';
+    return;
+  }
+
+  const permissao = Notification.permission;
+  chk.checked = !!AppState.config.notificacoesVencimento && permissao === 'granted';
+  if (btn) btn.disabled = permissao !== 'granted';
+
+  if (permissao === 'denied') {
+    chk.disabled = true;
+    status.textContent = 'As notificações estão bloqueadas. Libere nas permissões do site/app para ativar.';
+  } else if (chk.checked) {
+    status.textContent = 'Lembretes ativos: você será avisado um dia antes de cada vencimento.';
+  } else {
+    status.textContent = 'Lembretes desativados.';
+  }
+}
+
+/** Liga/desliga os lembretes (pede permissão quando necessário). */
+async function alternarLembretes(event) {
+  const chk = event.target;
+
+  if (chk.checked) {
+    let permissao = Notification.permission;
+    if (permissao === 'default') permissao = await Notification.requestPermission();
+
+    if (permissao !== 'granted') {
+      AppState.config.notificacoesVencimento = false;
+      await saveConfig();
+      atualizarUINotificacoes();
+      showToast('Permissão de notificação não concedida.', 'error');
+      return;
+    }
+
+    AppState.config.notificacoesVencimento = true;
+    await saveConfig();
+    iniciarLembretesVencimento();
+    await registrarSyncPeriodico();
+    const enviadas = await verificarVencimentosAgora();
+    showToast(enviadas > 0
+      ? `Lembretes ativados! ${enviadas} conta(s) vencem amanhã.`
+      : 'Lembretes de vencimento ativados! 🔔');
+  } else {
+    AppState.config.notificacoesVencimento = false;
+    await saveConfig();
+    await cancelarSyncPeriodico();
+    showToast('Lembretes desativados.', 'info');
+  }
+
+  atualizarUINotificacoes();
+}
+
+/** Envia uma notificação de teste para confirmar que tudo funciona. */
+async function enviarNotificacaoTeste() {
+  try {
+    if (Notification.permission !== 'granted') {
+      showToast('Ative os lembretes e permita as notificações primeiro.', 'error');
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification('SmartCash — teste', {
+      body: 'Tudo certo! Você receberá um aviso um dia antes de cada conta vencer.',
+      tag: 'smartcash-teste',
+      icon: 'assets/icons/icon-192.png',
+      badge: 'assets/icons/icon-192.png',
+      data: { url: './index.html#configuracoes' }
+    });
+  } catch (err) {
+    console.error('[Config] Erro no teste de notificação:', err);
+    showToast('Não foi possível enviar a notificação de teste.', 'error');
+  }
+}
+
+/**
+ * Registra a verificação periódica em segundo plano (Chrome/Edge com o app
+ * instalado). Permite avisar mesmo com o app fechado. Onde não há suporte,
+ * a verificação acontece ao abrir o app.
+ */
+async function registrarSyncPeriodico() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if (!('periodicSync' in reg)) return false;
+
+    const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+    if (status.state !== 'granted') return false;
+
+    await reg.periodicSync.register(VENC_PERIODIC_TAG, { minInterval: 12 * 60 * 60 * 1000 });
+    return true;
+  } catch (err) {
+    console.warn('[Vencimentos] Sync periódico indisponível:', err);
+    return false;
+  }
+}
+
+async function cancelarSyncPeriodico() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ('periodicSync' in reg) await reg.periodicSync.unregister(VENC_PERIODIC_TAG);
+  } catch (err) {
+    console.warn('[Vencimentos] Erro ao cancelar sync periódico:', err);
+  }
 }
 
 // ============================================================
@@ -192,11 +339,11 @@ async function exportarCSV() {
 
     // Contas
     csv += 'CONTAS\n';
-    csv += 'ID,Nome,Categoria,Valor Parcela,Parcelas Totais,Parcelas Restantes,Fixa,Ativa,Data Criação\n';
+    csv += 'ID,Nome,Categoria,Valor Parcela,Parcelas Totais,Parcelas Restantes,Fixa,Ativa,Dia Vencimento,Data Criação\n';
     (dados.contas || []).forEach(c => {
       csv += `${c.id},"${c.nome}","${c.categoria}",${c.valorParcela},` +
              `${c.parcelasTotais ?? ''},${c.parcelasRestantes ?? ''},` +
-             `${c.fixa},${c.ativa},${c.dataCriacao}\n`;
+             `${c.fixa},${c.ativa},${c.diaVencimento ?? ''},${c.dataCriacao}\n`;
     });
 
     // Pagamentos
